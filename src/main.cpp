@@ -51,41 +51,41 @@ void setup() {
 }
 
 void loop() {
-  // 狀態 1：雙輪正轉 (車體前進)
+  /*// 狀態 1：雙輪正轉 (車體前進)
   // L298N 邏輯：IN1(H), IN2(L) 為一側正轉；IN3(H), IN4(L) 為另一側正轉
-  /*Serial.println("測試：前進");
+  Serial.println("測試：前進");
   digitalWrite(IN1, HIGH);
   digitalWrite(IN2, LOW);
   digitalWrite(IN3, HIGH);
   digitalWrite(IN4, LOW);
   analogWrite(ENA, BASE_SPEED);
   analogWrite(ENB, BASE_SPEED);
-  delay(2000);*/
+  delay(2000);
 
   // 狀態 2：緊急停止 (煞車)
   // 將兩端電壓差歸零
-  /*Serial.println("測試：停止");
+  Serial.println("測試：停止");
   digitalWrite(IN1, LOW);
   digitalWrite(IN2, LOW);
   digitalWrite(IN3, LOW);
   digitalWrite(IN4, LOW);
   analogWrite(ENA, 0);
   analogWrite(ENB, 0);
-  delay(1000);*/
+  delay(1000);
 
   // 狀態 3：雙輪反轉 (車體後退)
   // 電流反向：IN1(L), IN2(H) ; IN3(L), IN4(H)
-  /*Serial.println("測試：後退");
+  Serial.println("測試：後退");
   digitalWrite(IN1, LOW);
   digitalWrite(IN2, HIGH);
   digitalWrite(IN3, LOW);
   digitalWrite(IN4, HIGH);
   analogWrite(ENA, BASE_SPEED);
   analogWrite(ENB, BASE_SPEED);
-  delay(2000);*/
+  delay(2000);
 
   // 狀態 4：再次停止
-  /*Serial.println("測試：停止");
+  Serial.println("測試：停止");
   digitalWrite(IN1, LOW);
   digitalWrite(IN2, LOW);
   digitalWrite(IN3, LOW);
@@ -95,7 +95,7 @@ void loop() {
   delay(3000);*/
 
   // 讀取數位狀態 (HIGH=1, LOW=0)
-  int val_L2 = digitalRead(SENSOR_L2);
+  /*int val_L2 = digitalRead(SENSOR_L2);
   int val_L1 = digitalRead(SENSOR_L1);
   int val_M  = digitalRead(SENSOR_M);
   int val_R1 = digitalRead(SENSOR_R1);
@@ -107,7 +107,7 @@ void loop() {
   Serial.print(val_L1); Serial.print(" ");
   Serial.print(val_M);  Serial.print(" ");
   Serial.print(val_R1); Serial.print(" ");
-  Serial.println(val_R2);
+  Serial.println(val_R2);*/
 
-  delay(100); // 維持 10Hz 的更新率以便於肉眼觀察
+  /*delay(100); // 維持 10Hz 的更新率以便於肉眼觀察*/
 }
