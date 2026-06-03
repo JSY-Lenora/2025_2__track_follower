@@ -21,9 +21,38 @@ const int SENSOR_M  = 32; // 中央 S3
 const int SENSOR_R1 = 34; // 中右 S4
 const int SENSOR_R2 = 35; // 極右 S5
 
+// 定義 ASL 控制腳位 (假設初始對應，稍後可依實際亮燈顏色調整)
+const int PIN_R = 16;
+const int PIN_G = 17;
+const int PIN_B = 18;
+
+// 定義 ASL 狀態列舉
+enum VehicleState {
+  STATE_SAFE,       // 安全狀態 (綠)
+  STATE_AUTONOMOUS, // 自主導航狀態 (紅)
+  STATE_OTHER       // 其他狀態 (藍)
+};
+
+const bool COMMON_ANODE = false;
+
+void setLED(bool r, bool g, bool b) {
+  if (COMMON_ANODE) {
+    digitalWrite(PIN_R, !r);
+    digitalWrite(PIN_G, !g);
+    digitalWrite(PIN_B, !b);
+  } else {
+    digitalWrite(PIN_R, r);
+    digitalWrite(PIN_G, g);
+    digitalWrite(PIN_B, b);
+  }
+}
+
+void turnOffASL() {
+  setLED(false, false, false);
+}
+
 void setup() {
   Serial.begin(115200);
-  
   // 設定腳位為輸出模式
   pinMode(ENA, OUTPUT);
   pinMode(IN1, OUTPUT);
@@ -46,68 +75,40 @@ void setup() {
   pinMode(SENSOR_R1, INPUT);
   pinMode(SENSOR_R2, INPUT);
   
-  Serial.println("五路循跡感測器初始化完成，開始連續取樣。");
-  delay(3000); // 留出 3 秒空檔，讓你將車體放在空曠處或架空
+  pinMode(PIN_R, OUTPUT);
+  pinMode(PIN_G, OUTPUT);
+  pinMode(PIN_B, OUTPUT);
+  
+  // 初始狀態關閉所有燈號
+  turnOffASL();
+  Serial.println("ASL 系統初始化完成，開始測試狀態切換。");
+  delay(2000);
+}
+
+void updateASL(VehicleState state) {
+  switch (state) {
+    case STATE_SAFE:
+      setLED(false, true, false); // 綠燈恆亮
+      Serial.println("目前狀態：安全 (預期亮綠燈)");
+      break;
+    case STATE_AUTONOMOUS:
+      setLED(true, false, false); // 紅燈恆亮
+      Serial.println("目前狀態：自主導航 (預期亮紅燈)");
+      break;
+    case STATE_OTHER:
+      setLED(false, false, true); // 藍燈恆亮
+      Serial.println("目前狀態：其他 (預期亮藍燈)");
+      break;
+  }
 }
 
 void loop() {
-  /*// 狀態 1：雙輪正轉 (車體前進)
-  // L298N 邏輯：IN1(H), IN2(L) 為一側正轉；IN3(H), IN4(L) 為另一側正轉
-  Serial.println("測試：前進");
-  digitalWrite(IN1, HIGH);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
-  analogWrite(ENA, BASE_SPEED);
-  analogWrite(ENB, BASE_SPEED);
-  delay(2000);
-
-  // 狀態 2：緊急停止 (煞車)
-  // 將兩端電壓差歸零
-  Serial.println("測試：停止");
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, LOW);
-  analogWrite(ENA, 0);
-  analogWrite(ENB, 0);
-  delay(1000);
-
-  // 狀態 3：雙輪反轉 (車體後退)
-  // 電流反向：IN1(L), IN2(H) ; IN3(L), IN4(H)
-  Serial.println("測試：後退");
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, HIGH);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, HIGH);
-  analogWrite(ENA, BASE_SPEED);
-  analogWrite(ENB, BASE_SPEED);
-  delay(2000);
-
-  // 狀態 4：再次停止
-  Serial.println("測試：停止");
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, LOW);
-  analogWrite(ENA, 0);
-  analogWrite(ENB, 0);
-  delay(3000);*/
-
-  // 讀取數位狀態 (HIGH=1, LOW=0)
-  /*int val_L2 = digitalRead(SENSOR_L2);
-  int val_L1 = digitalRead(SENSOR_L1);
-  int val_M  = digitalRead(SENSOR_M);
-  int val_R1 = digitalRead(SENSOR_R1);
-  int val_R2 = digitalRead(SENSOR_R2);
-
-  // 格式化輸出至序列埠監控視窗
-  Serial.print("感測器狀態 [L2 L1 M R1 R2]: ");
-  Serial.print(val_L2); Serial.print(" ");
-  Serial.print(val_L1); Serial.print(" ");
-  Serial.print(val_M);  Serial.print(" ");
-  Serial.print(val_R1); Serial.print(" ");
-  Serial.println(val_R2);*/
-
-  /*delay(100); // 維持 10Hz 的更新率以便於肉眼觀察*/
+  //updateASL(STATE_SAFE);
+  //delay(2000);
+  
+  //updateASL(STATE_AUTONOMOUS);
+  //delay(2000);
+  
+  //updateASL(STATE_OTHER);
+  //delay(2000);
 }
