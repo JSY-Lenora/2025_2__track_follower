@@ -13,6 +13,7 @@ const int IN4 = 19;
 // 定義測試用的基礎轉速 (PWM範圍: 0-255)
 // 150 約為 60% 功率，足以克服靜摩擦力啟動 TT 馬達
 const int BASE_SPEED = 125; 
+const int TEST_SPEED = 125;
 
 // 定義五路感測器輸入腳位 (由左至右)
 const int SENSOR_L2 = 13; // 極左 S1
@@ -51,6 +52,22 @@ void turnOffASL() {
   setLED(false, false, false);
 }
 
+void setLeftMotor(int speed) {
+  if (speed >= 0) { 
+    digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); analogWrite(ENA, speed); 
+  } else { 
+    digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH); analogWrite(ENA, -speed); 
+  }
+}
+
+void setRightMotor(int speed) {
+  if (speed >= 0) { 
+    digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW); analogWrite(ENB, speed); 
+  } else { 
+    digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH); analogWrite(ENB, -speed); 
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   // 設定腳位為輸出模式
@@ -80,9 +97,10 @@ void setup() {
   pinMode(PIN_B, OUTPUT);
   
   // 初始狀態關閉所有燈號
-  turnOffASL();
-  Serial.println("ASL 系統初始化完成，開始測試狀態切換。");
-  delay(2000);
+  setLED(false, false, false);
+  setLeftMotor(0);
+  setRightMotor(0);
+  delay(3000);
 }
 
 void updateASL(VehicleState state) {
@@ -103,12 +121,21 @@ void updateASL(VehicleState state) {
 }
 
 void loop() {
-  //updateASL(STATE_SAFE);
-  //delay(2000);
-  
-  //updateASL(STATE_AUTONOMOUS);
-  //delay(2000);
-  
-  //updateASL(STATE_OTHER);
-  //delay(2000);
+// 動作要求 2：車子向前走兩秒，期間恆亮紅燈
+  setLED(true, false, false);
+  setLeftMotor(TEST_SPEED);
+  setRightMotor(TEST_SPEED);
+  delay(2000);
+
+  // 動作要求 3：車子停下兩秒，期間恆亮藍燈
+  setLED(false, false, true);
+  setLeftMotor(0);
+  setRightMotor(0);
+  delay(2000);
+
+  // 動作要求 4：車子向後走兩秒，期間恆亮綠燈
+  setLED(false, true, false);
+  setLeftMotor(-TEST_SPEED);
+  setRightMotor(-TEST_SPEED);
+  delay(2000);
 }
