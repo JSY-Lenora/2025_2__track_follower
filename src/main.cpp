@@ -1,73 +1,77 @@
 #include <Arduino.h>
 
-// 定義左馬達控制腳位
-const int ENA = 25; 
-const int IN1 = 26; 
-const int IN2 = 27; 
-
-// 定義右馬達控制腳位
-const int ENB = 22; 
-const int IN3 = 21; 
-const int IN4 = 19; 
-
-// 定義測試用的基礎轉速 (PWM範圍: 0-255)
-// 150 約為 60% 功率，足以克服靜摩擦力啟動 TT 馬達
-// ================= 運動控制參數 =================
-int BASE_SPEED = 180;  // 基準直進速度 (0-255)
-int MAX_SPEED = 255;   // 單側馬達最高速度限制
-int MIN_SPEED = -150;  // 允許的最大反轉速度 (用於急彎產生原地旋轉力矩)
-
-// 控制理論參數 (Kp 與 Kd 需依實際摩擦力與車體慣性進行實測調校)
-float Kp = 3.5;  // 比例常數：決定轉向的敏銳度
-float Kd = 15.0; // 微分常數：決定抑制蛇行震盪的阻尼強度
-
-// 系統狀態變數
-int lastError = 0;
-enum VehicleState { STATE_SAFE, STATE_AUTONOMOUS, STATE_OTHER };
-VehicleState currentState = STATE_SAFE;
-
-// 定義五路感測器輸入腳位 (由左至右)
+// ================= 硬體腳位定義 =================
+const int ENA = 25; const int IN1 = 26; const int IN2 = 27; 
+const int ENB = 22; const int IN3 = 21; const int IN4 = 19; 
 const int S1 = 13; const int S2 = 14; const int S3 = 32; 
-const int S4 = 34; const int S5 = 35;
+const int S4 = 34; const int S5 = 35; 
+const int PIN_R = 16; const int PIN_G = 17; const int PIN_B = 18; 
+const bool COMMON_ANODE = false; 
+const int PIN_START = 4;
 
-// 定義 ASL 控制腳位 (假設初始對應，稍後可依實際亮燈顏色調整)
-const int PIN_R = 16;
-const int PIN_G = 17;
-const int PIN_B = 18;
+// ================= 運動控制與硬體補償參數 =================
+int BASE_SPEED = 180;  // 已調降基礎直進速度
+int MAX_SPEED = 240;   // 同步調降最大速度上限，避免過度補償
+int MIN_SPEED = -180;  // 調整反轉極限
 
-const bool COMMON_ANODE = false;
+// 硬體非對稱性補償係數 (Motor Trim)
+// 針對右輪過快的現象，對右側 PWM 輸出進行 30% 的衰減
+const float LEFT_TRIM = 0.75;
+const float RIGHT_TRIM = 1.0; 
 
+// 控制理論參數 (調降基礎速度後，系統慣性改變，可能需要重新微調 Kp)
+float Kp = 3.5;  
+float Kd = 15.0; 
+
+int lastError = 0;
+bool isStarted = false; // 系統啟動狀態鎖
+enum VehicleState { STATE_SAFE, STATE_AUTONOMOUS, STATE_OTHER };
+VehicleState currentState = STATE_OTHER;
+
+// --- 新增以下三個時間與狀態追蹤變數 ---
+unsigned long lostStartTime = 0; // 記錄失去路線的瞬間時間
+bool isLost = false;             // 標記目前是否處於迷失自救狀態
+bool isDisqualified = false;     // 系統失格鎖定標籤
+// --------------------------------------
+
+// PWM 狀態濾波器
+int currentLeftPWM = -999;
+int currentRightPWM = -999;
+
+// ================= 基礎封裝函式 =================
 void setLED(bool r, bool g, bool b) {
   if (COMMON_ANODE) {
-    digitalWrite(PIN_R, !r);
-    digitalWrite(PIN_G, !g);
-    digitalWrite(PIN_B, !b);
+    digitalWrite(PIN_R, !r); digitalWrite(PIN_G, !g); digitalWrite(PIN_B, !b);
   } else {
-    digitalWrite(PIN_R, r);
-    digitalWrite(PIN_G, g);
-    digitalWrite(PIN_B, b);
+    digitalWrite(PIN_R, r); digitalWrite(PIN_G, g); digitalWrite(PIN_B, b);
   }
-}
-
-void turnOffASL() {
-  setLED(false, false, false);
 }
 
 void updateASL(VehicleState state) {
   if (currentState == state) return; 
   currentState = state;
   switch (state) {
-    case STATE_SAFE:       setLED(false, true, false); break; // 綠
-    case STATE_AUTONOMOUS: setLED(true, false, false); break; // 紅
-    case STATE_OTHER:      setLED(false, false, true); break; // 藍
+    case STATE_SAFE:       setLED(false, true, false); break; 
+    case STATE_AUTONOMOUS: setLED(true, false, false); break; 
+    case STATE_OTHER:      setLED(false, false, true); break; 
   }
 }
 
 void setMotor(int speedLeft, int speedRight) {
-  // 限制輸出範圍以保護硬體並確保 PWM 合法性
+  // 1. 注入硬體補償係數 (Hardware Trim)
+  speedLeft = speedLeft * LEFT_TRIM;
+  speedRight = speedRight * RIGHT_TRIM;
+
+  // 2. 限制輸出範圍
   speedLeft = constrain(speedLeft, MIN_SPEED, MAX_SPEED);
   speedRight = constrain(speedRight, MIN_SPEED, MAX_SPEED);
 
+  // 3. PWM 狀態濾波器 (防護 ESP32 Timer)
+  if (speedLeft == currentLeftPWM && speedRight == currentRightPWM) {
+    return; 
+  }
+
+  // 4. 硬體訊號輸出
   if (speedLeft >= 0) {
     digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); analogWrite(ENA, speedLeft);
   } else {
@@ -79,52 +83,64 @@ void setMotor(int speedLeft, int speedRight) {
   } else {
     digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH); analogWrite(ENB, -speedRight);
   }
+
+  currentLeftPWM = speedLeft;
+  currentRightPWM = speedRight;
 }
 
 void setup() {
   Serial.begin(115200);
-  // 設定腳位為輸出模式
-  pinMode(ENA, OUTPUT);
-  pinMode(IN1, OUTPUT);
-  pinMode(IN2, OUTPUT);
-  pinMode(ENB, OUTPUT);
-  pinMode(IN3, OUTPUT);
-  pinMode(IN4, OUTPUT);
-
-  // 初始狀態確保馬達完全停止
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, LOW);
-  analogWrite(ENA, 0);
-  analogWrite(ENB, 0);
-
+  pinMode(ENA, OUTPUT); pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
+  pinMode(ENB, OUTPUT); pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
   pinMode(S1, INPUT); pinMode(S2, INPUT); pinMode(S3, INPUT);
   pinMode(S4, INPUT); pinMode(S5, INPUT);
+  pinMode(PIN_R, OUTPUT); pinMode(PIN_G, OUTPUT); pinMode(PIN_B, OUTPUT);
+  pinMode(PIN_START, INPUT_PULLUP);
 
-  pinMode(PIN_R, OUTPUT);
-  pinMode(PIN_G, OUTPUT);
-  pinMode(PIN_B, OUTPUT);
-  
   updateASL(STATE_SAFE);
   setMotor(0, 0);
-  delay(3000);
 }
 
 void loop() {
-// 1. 讀取感測器狀態 (假設 1 為壓到黑線)
+
+  if (isDisqualified) {
+    updateASL(STATE_OTHER); // 恆亮藍燈
+    setMotor(0, 0);         // 徹底關閉馬達
+    
+    // 偵測物理開關是否被「關閉」(拉高至 HIGH)
+    if (digitalRead(PIN_START) == HIGH) {
+      isDisqualified = false; // 解除失格鎖定
+      isStarted = false;      // 回到未啟動狀態
+      Serial.println("系統已重置，等待開關重新開啟。");
+      delay(500); // 簡單防彈跳
+    }
+    return; // 強制中斷，絕對不執行任何循跡演算法
+  }
+
+  // 階段一：等待啟動訊號
+  if (!isStarted) {
+    updateASL(STATE_SAFE); // 恆亮綠燈
+    setMotor(0, 0);
+    
+    // 偵測開關是否被「開啟」(拉低至 LOW)
+    if (digitalRead(PIN_START) == LOW) {
+      Serial.println("接收到啟動訊號，3秒後進入自主導航...");
+      delay(3000); 
+      isStarted = true; 
+      isLost = false; // 每次重新起跑時，確保迷失狀態被重置
+    }
+    return; 
+  }
+
   int s[5] = {digitalRead(S1), digitalRead(S2), digitalRead(S3), digitalRead(S4), digitalRead(S5)};
-  
-  // 2. 空間權重定義
   int weights[5] = {-20, -10, 0, 10, 20};
   
   int activeSensors = 0;
   long weightedSum = 0;
   int currentError = 0;
 
-  // 3. 計算加權平均誤差
   for (int i = 0; i < 5; i++) {
-    if (s[i] == 1) {
+    if (s[i] == 1) { 
       weightedSum += weights[i];
       activeSensors++;
     }
@@ -132,34 +148,39 @@ void loop() {
 
   if (activeSensors > 0) {
     currentError = weightedSum / activeSensors;
-    lastError = currentError; // 記憶最後一次的誤差方向
-    updateASL(STATE_AUTONOMOUS); // 進入自主導航 (紅燈)
+    updateASL(STATE_AUTONOMOUS); // 正常導航中，維持紅燈
+    isLost = false;              // 只要壓到線，立刻解除迷失狀態與計時
   } else {
-    // 記憶尋線機制：若完全脫離黑線，根據最後的誤差方向給予極端值，迫使車體原地旋轉找回路線
-    if (lastError > 0) {
-      currentError = 30; // 強烈右轉
-    } else if (lastError < 0) {
-      currentError = -30; // 強烈左轉
-    } else {
-      currentError = 0; 
+    // 進入迷失狀態
+    if (!isLost) {
+      isLost = true;
+      lostStartTime = millis(); // 記錄剛脫離黑線的瞬間時間戳記
     }
-    
-    // 若極端迷失，亮起藍燈 (實務上若車體一直找不到線，這裡會被觸發)
-    updateASL(STATE_OTHER); 
+
+    // 檢查脫離黑線的時間是否已經超過 5000 毫秒 (5秒)
+    if (millis() - lostStartTime >= 5000) {
+      Serial.println("迷失超過 5 秒，觸發失格！");
+      isDisqualified = true; // 觸發失格鎖定，下一個迴圈將由階段零接管
+      return; // 提早結束當次迴圈
+    }
+
+    // 若未滿 5 秒，仍視為自主導航的一環 (自救期)，維持紅燈並執行記憶轉向
+    updateASL(STATE_AUTONOMOUS); 
+    if (lastError > 0) currentError = 30; 
+    else if (lastError < 0) currentError = -30; 
+    else currentError = 0; 
   }
 
-  // 4. PD 控制器運算
   int pTerm = Kp * currentError;
   int dTerm = Kd * (currentError - lastError);
   int correction = pTerm + dTerm;
 
-  // 5. 動力混合與輸出 (差速映射)
-  // 左轉時 correction 為負，右轉時 correction 為正
   int speedLeft = BASE_SPEED + correction;
   int speedRight = BASE_SPEED - correction;
 
   setMotor(speedLeft, speedRight);
   
-  // 6. 更新離散狀態
-  lastError = currentError;
+  lastError = currentError; 
+  
+  delay(5); 
 }
