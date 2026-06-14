@@ -10,18 +10,20 @@ const bool COMMON_ANODE = false;
 const int PIN_START = 4;
 
 // ================= 運動控制與硬體補償參數 =================
-int BASE_SPEED = 180;  // 已調降基礎直進速度
-int MAX_SPEED = 240;   // 同步調降最大速度上限，避免過度補償
-int MIN_SPEED = -180;  // 調整反轉極限
+int BASE_SPEED = 125;  // 已調降基礎直進速度
+int MAX_SPEED = 175;   // 同步調降最大速度上限，避免過度補償
+int MIN_SPEED = -120;  // 調整反轉極限
 
 // 硬體非對稱性補償係數 (Motor Trim)
 // 針對右輪過快的現象，對右側 PWM 輸出進行 30% 的衰減
 const float LEFT_TRIM = 0.75;
-const float RIGHT_TRIM = 1.0; 
+const float RIGHT_TRIM = 1.0;
+// 不知道為什麼這邊反了，但反著調就好
 
 // 控制理論參數 (調降基礎速度後，系統慣性改變，可能需要重新微調 Kp)
-float Kp = 3.5;  
-float Kd = 15.0; 
+float Kp = 8.1;
+float Kd = 12.0;
+const int LOST_ERROR = 50;
 
 int lastError = 0;
 bool isStarted = false; // 系統啟動狀態鎖
@@ -111,7 +113,6 @@ void loop() {
     if (digitalRead(PIN_START) == HIGH) {
       isDisqualified = false; // 解除失格鎖定
       isStarted = false;      // 回到未啟動狀態
-      Serial.println("系統已重置，等待開關重新開啟。");
       delay(500); // 簡單防彈跳
     }
     return; // 強制中斷，絕對不執行任何循跡演算法
@@ -124,8 +125,7 @@ void loop() {
     
     // 偵測開關是否被「開啟」(拉低至 LOW)
     if (digitalRead(PIN_START) == LOW) {
-      Serial.println("接收到啟動訊號，3秒後進入自主導航...");
-      delay(3000); 
+      delay(2000); 
       isStarted = true; 
       isLost = false; // 每次重新起跑時，確保迷失狀態被重置
     }
@@ -133,7 +133,7 @@ void loop() {
   }
 
   int s[5] = {digitalRead(S1), digitalRead(S2), digitalRead(S3), digitalRead(S4), digitalRead(S5)};
-  int weights[5] = {-20, -10, 0, 10, 20};
+  int weights[5] = {-25, -10, 0, 10, 25};
   
   int activeSensors = 0;
   long weightedSum = 0;
@@ -154,25 +154,35 @@ void loop() {
     // 進入迷失狀態
     if (!isLost) {
       isLost = true;
-      lostStartTime = millis(); // 記錄剛脫離黑線的瞬間時間戳記
+      lostStartTime = millis(); 
     }
 
-    // 檢查脫離黑線的時間是否已經超過 5000 毫秒 (5秒)
     if (millis() - lostStartTime >= 5000) {
-      Serial.println("迷失超過 5 秒，觸發失格！");
-      isDisqualified = true; // 觸發失格鎖定，下一個迴圈將由階段零接管
-      return; // 提早結束當次迴圈
+      isDisqualified = true; 
+      return; 
     }
 
-    // 若未滿 5 秒，仍視為自主導航的一環 (自救期)，維持紅燈並執行記憶轉向
     updateASL(STATE_AUTONOMOUS); 
-    if (lastError > 0) currentError = 30; 
-    else if (lastError < 0) currentError = -30; 
+    
+    // 使用您提議的常數來決定轉向方向
+    if (lastError > 0) currentError = LOST_ERROR; 
+    else if (lastError < 0) currentError = -LOST_ERROR; 
     else currentError = 0; 
   }
 
+  // === 演算法防護核心 ===
   int pTerm = Kp * currentError;
-  int dTerm = Kd * (currentError - lastError);
+  int dTerm = 0; // 預設 D-Term 為 0
+
+  if (activeSensors > 0) {
+    // 只有在「正常壓線」狀態下，才計算 D-Term (PD 控制)
+    dTerm = Kd * (currentError - lastError);
+  } else {
+    // 在「迷失自救」狀態下，強制阻斷 D-Term (退化為純 P 控制的暴力拉回)
+    // 這樣可以徹底消滅 Derivative Kick 和 0 阻尼帶來的數學異常
+    dTerm = 0; 
+  }
+
   int correction = pTerm + dTerm;
 
   int speedLeft = BASE_SPEED + correction;
