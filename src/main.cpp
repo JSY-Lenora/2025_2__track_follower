@@ -10,27 +10,23 @@ const bool COMMON_ANODE = false;
 const int PIN_START = 4;
 
 // ================= 運動控制與硬體補償參數 =================
-int BASE_SPEED = 125;  // 已調降基礎直進速度
-int MAX_SPEED = 175;   // 同步調降最大速度上限，避免過度補償
-int MIN_SPEED = -120;  // 調整反轉極限
+int BASE_SPEED = 125;
+int MAX_SPEED = 175;
+int MIN_SPEED = -120;
 
-// 硬體非對稱性補償係數 (Motor Trim)
-// 針對右輪過快的現象，對右側 PWM 輸出進行 30% 的衰減
 const float LEFT_TRIM = 0.75;
 const float RIGHT_TRIM = 1.0;
-// 不知道為什麼這邊反了，但反著調就好
 
-// 控制理論參數 (調降基礎速度後，系統慣性改變，可能需要重新微調 Kp)
 float Kp = 8.1;
 float Kd = 12.0;
 const int LOST_ERROR = 50;
 
 int lastError = 0;
-bool isStarted = false; // 系統啟動狀態鎖
+bool isStarted = false;
 enum VehicleState { STATE_SAFE, STATE_AUTONOMOUS, STATE_OTHER };
 VehicleState currentState = STATE_OTHER;
 
-// --- 新增以下三個時間與狀態追蹤變數 ---
+// --- 時間與狀態追蹤變數 ---
 unsigned long lostStartTime = 0; // 記錄失去路線的瞬間時間
 bool isLost = false;             // 標記目前是否處於迷失自救狀態
 bool isDisqualified = false;     // 系統失格鎖定標籤
@@ -60,20 +56,16 @@ void updateASL(VehicleState state) {
 }
 
 void setMotor(int speedLeft, int speedRight) {
-  // 1. 注入硬體補償係數 (Hardware Trim)
   speedLeft = speedLeft * LEFT_TRIM;
   speedRight = speedRight * RIGHT_TRIM;
 
-  // 2. 限制輸出範圍
   speedLeft = constrain(speedLeft, MIN_SPEED, MAX_SPEED);
   speedRight = constrain(speedRight, MIN_SPEED, MAX_SPEED);
 
-  // 3. PWM 狀態濾波器 (防護 ESP32 Timer)
   if (speedLeft == currentLeftPWM && speedRight == currentRightPWM) {
     return; 
   }
 
-  // 4. 硬體訊號輸出
   if (speedLeft >= 0) {
     digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); analogWrite(ENA, speedLeft);
   } else {
@@ -115,7 +107,7 @@ void loop() {
       isStarted = false;      // 回到未啟動狀態
       delay(500); // 簡單防彈跳
     }
-    return; // 強制中斷，絕對不執行任何循跡演算法
+    return; // 強制中斷
   }
 
   // 階段一：等待啟動訊號
@@ -164,7 +156,6 @@ void loop() {
 
     updateASL(STATE_AUTONOMOUS); 
     
-    // 使用您提議的常數來決定轉向方向
     if (lastError > 0) currentError = LOST_ERROR; 
     else if (lastError < 0) currentError = -LOST_ERROR; 
     else currentError = 0; 
@@ -178,19 +169,13 @@ void loop() {
     // 只有在「正常壓線」狀態下，才計算 D-Term (PD 控制)
     dTerm = Kd * (currentError - lastError);
   } else {
-    // 在「迷失自救」狀態下，強制阻斷 D-Term (退化為純 P 控制的暴力拉回)
-    // 這樣可以徹底消滅 Derivative Kick 和 0 阻尼帶來的數學異常
     dTerm = 0; 
   }
 
   int correction = pTerm + dTerm;
-
   int speedLeft = BASE_SPEED + correction;
   int speedRight = BASE_SPEED - correction;
-
   setMotor(speedLeft, speedRight);
-  
   lastError = currentError; 
-  
   delay(5); 
 }
